@@ -774,8 +774,9 @@ body.locked .lock{display:flex}
         }
       });
       const diag = Math.hypot(maxX - minX, maxY - minY);
-      // 1回半以上まわっていて（角度の合計が 2.8π 以上）、線の長さが範囲の対角線の 2.8 倍以上なら、ぐるぐるとみなします
-      if (diag < 16 || turn < 2.8 * Math.PI || len < 2.8 * diag) return null;
+      // 2周半くらいまわっていて（角度の合計が 4.8π 以上）、線の長さが範囲の対角線の 4 倍以上なら、ぐるぐるとみなします
+      // （1周は 2π です。手書きのゆれで少し多めに数えられるので、2.5周ちょうどより少しだけ低い基準にしています）
+      if (diag < 16 || turn < 4.8 * Math.PI || len < 4 * diag) return null;
       const pad = 6;
       const inside = p => p[0] >= minX - pad && p[0] <= maxX + pad && p[1] >= minY - pad && p[1] <= maxY + pad;
       const hit = new Set();
