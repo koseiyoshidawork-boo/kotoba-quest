@@ -116,6 +116,7 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
 .answer:disabled{background:#f6f2ec;color:var(--sub)}
 .answer.ok{border-color:var(--ok);background:var(--ok-l)}
 .answer.ng{border-color:var(--ng);background:var(--ng-l)}
+.pad-wrap,.pad-tools{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .pad-wrap{position:relative;border:2px solid #ddd5c8;border-radius:14px;overflow:hidden;background:repeating-linear-gradient(#fffdf9 0,#fffdf9 47px,#ece4d6 48px)}
 .pad-wrap canvas{display:block;width:100%;height:160px;touch-action:none;cursor:crosshair;color:#1f2a37}
 .pad-guide{position:absolute;left:14px;top:10px;font-size:12px;color:#9a9285;pointer-events:none}
@@ -631,6 +632,15 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
     const end = () => { current = null; };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
+    // iPad の Safari では、書いている途中に長押しと判定されて文字の選択やメニューが出ることがあるため、
+    // 手書き欄の上でのタッチは、ブラウザ標準の動き（選択、長押しメニュー、スクロール）を止めます。
+    const stopTouch = e => { if (e.cancelable) e.preventDefault(); };
+    c.addEventListener('touchstart', stopTouch, { passive: false });
+    c.addEventListener('touchmove', stopTouch, { passive: false });
+    c.addEventListener('contextmenu', stopTouch);
+    // 書いている間に始まった文字選択は取り消します。
+    document.addEventListener('selectstart', e => { if (current) e.preventDefault(); });
+    c.addEventListener('pointerdown', () => { const sel = window.getSelection && window.getSelection(); if (sel && sel.rangeCount) sel.removeAllRanges(); });
     if ('ResizeObserver' in window) new ResizeObserver(size).observe(c); else window.addEventListener('resize', size);
     return { size, clear() { strokes = []; redraw(); }, undo() { strokes.pop(); redraw(); }, isEmpty() { return strokes.length === 0; } };
   })();
