@@ -314,7 +314,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
         <div class="pad-tools">
           <button class="btn ghost" id="undoBtn" type="button">↶ 1画戻す</button>
           <button class="btn ghost" id="clearBtn" type="button">ぜんぶ消す</button>
-          <button class="btn ghost pen-toggle" id="penOnlyBtn" type="button" aria-pressed="false" hidden>✏️ ペンだけ：オフ</button>
+          <button class="btn ghost pen-toggle" id="penOnlyBtn" type="button" aria-pressed="false">✏️ ペンだけ：オフ</button>
         </div>
       </div>
 
@@ -643,10 +643,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     c.addEventListener('pointerdown', e => {
       if (!S || S.phase !== 'answer') return;
       e.preventDefault();
-      // Apple Pencil などのペンを一度使ったら、自動で「ペンだけ」をオンにします。
-      // オンのあいだは、指や手のひらが画面に触れても線を書きません。
-      if (e.pointerType === 'pen' && !settings.penOnly) { settings.penOnly = true; save(); updatePenBtn(); }
-      if (e.pointerType === 'pen') $('#penOnlyBtn').hidden = false;
+      // 「ペンだけ」がオンのあいだは、指や手のひらが画面に触れても線を書きません（オンオフは自分でボタンで切り替えます）
       if (settings.penOnly && e.pointerType === 'touch') return;
       if (current) return; // 書いている途中に別の指が触れても、今の線を続けます
       try { c.setPointerCapture(e.pointerId); } catch (err) { /* 古いブラウザ向け */ }
@@ -690,7 +687,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     const b = $('#penOnlyBtn');
     b.textContent = '✏️ ペンだけ：' + (settings.penOnly ? 'オン' : 'オフ');
     b.setAttribute('aria-pressed', String(settings.penOnly));
-    if (settings.penOnly) b.hidden = false;
   }
   updatePenBtn();
   $('#penOnlyBtn').addEventListener('click', () => { settings.penOnly = !settings.penOnly; save(); updatePenBtn(); });
