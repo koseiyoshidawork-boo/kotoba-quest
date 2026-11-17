@@ -116,13 +116,14 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
 .answer:disabled{background:#f6f2ec;color:var(--sub)}
 .answer.ok{border-color:var(--ok);background:var(--ok-l)}
 .answer.ng{border-color:var(--ng);background:var(--ng-l)}
-/* 問題カードの文字は選べないようにします。iPad で手書き中に長押しと判定され、近くの文字が選択されるのを防ぐためです。答えの入力欄だけは選べるように戻します。 */
-.q-card,.q-card *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-.q-card input{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+/* ページ全体の文字を選べないようにします。iPad で手書き中に長押しと判定され、近くの文字が選択されるのを防ぐためです。文字を打ち込む欄だけは選べるように戻します。 */
+html,body,body *{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 .pad-wrap{position:relative;border:2px solid #ddd5c8;border-radius:14px;overflow:hidden;background:repeating-linear-gradient(#fffdf9 0,#fffdf9 47px,#ece4d6 48px)}
 .pad-wrap canvas{display:block;width:100%;height:160px;touch-action:none;cursor:crosshair;color:#1f2a37}
 .pad-guide{position:absolute;left:14px;top:10px;font-size:12px;color:#9a9285;pointer-events:none}
 .pad-tools{display:flex;gap:8px;margin-top:8px}
+.back-btn{display:inline-flex;align-items:center;min-height:44px;margin-top:6px;padding:6px 4px;background:none;border:0;color:#5b6573;font-size:14px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .pad-tools .btn{min-height:40px;padding:8px 14px;font-size:13px}
 .actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:14px}
 .feedback{min-height:24px;margin-top:12px;font-size:14px;font-weight:700}
@@ -318,6 +319,8 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
         <button class="btn primary" id="submitBtn" type="button">答え合わせ <kbd>Enter</kbd></button>
         <button class="btn ghost" id="skipBtn" type="button">わからない</button>
       </div>
+
+      <button class="back-btn" id="backBtn" type="button" hidden>↩ 前の問題に戻る（採点を取り消す）</button>
 
       <div class="feedback" id="feedback" role="status" aria-live="polite"></div>
 
@@ -598,7 +601,9 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
     const ctx = c.getContext('2d');
     let strokes = [];
     let current = null;
+    let drawn = 0; // いま書いている線のうち、画面に描き終えた点の数
     function style() { ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = ctx.fillStyle = '#1f2a37'; }
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
     function size() {
       const r = c.getBoundingClientRect();
       if (!r.width) return;
@@ -607,11 +612,24 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
       ctx.setTransform(d, 0, 0, d, 0, 0);
       redraw();
     }
+    // 点と点を直線ではなく、なめらかな曲線（点の中間を通る2次曲線）でつなぎます
+    function drawSegment(s, i) {
+      // i 番目の点までの区間を描きます
+      ctx.beginPath();
+      if (i === 1) { ctx.moveTo(s[0][0], s[0][1]); const m = mid(s[0], s[1]); ctx.lineTo(m[0], m[1]); }
+      else { const a = mid(s[i - 2], s[i - 1]); const b = mid(s[i - 1], s[i]); ctx.moveTo(a[0], a[1]); ctx.quadraticCurveTo(s[i - 1][0], s[i - 1][1], b[0], b[1]); }
+      ctx.stroke();
+    }
+    function drawTail(s) {
+      // 線の最後（最後の中間点から最後の点まで）を描きます
+      if (s.length < 2) return;
+      const m = mid(s[s.length - 2], s[s.length - 1]);
+      ctx.beginPath(); ctx.moveTo(m[0], m[1]); ctx.lineTo(s[s.length - 1][0], s[s.length - 1][1]); ctx.stroke();
+    }
     function drawStroke(s) {
       if (s.length === 1) { ctx.beginPath(); ctx.arc(s[0][0], s[0][1], 1.6, 0, Math.PI * 2); ctx.fill(); return; }
-      ctx.beginPath(); ctx.moveTo(s[0][0], s[0][1]);
-      for (let i = 1; i < s.length; i++) ctx.lineTo(s[i][0], s[i][1]);
-      ctx.stroke();
+      for (let i = 1; i < s.length; i++) drawSegment(s, i);
+      if (s !== current) drawTail(s);
     }
     function redraw() {
       ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height); ctx.restore();
@@ -623,15 +641,24 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
       if (!S || S.phase !== 'answer') return;
       e.preventDefault();
       try { c.setPointerCapture(e.pointerId); } catch (err) { /* 古いブラウザ向け */ }
-      current = [point(e)]; strokes.push(current); redraw();
+      current = [point(e)]; strokes.push(current); drawn = 1; redraw();
     });
     c.addEventListener('pointermove', e => {
       if (!current) return;
-      const p = point(e); const last = current[current.length - 1];
-      current.push(p); style();
-      ctx.beginPath(); ctx.moveTo(last[0], last[1]); ctx.lineTo(p[0], p[1]); ctx.stroke();
+      // Apple Pencil などは1回の通知の間に細かい点をたくさん記録しています。
+      // getCoalescedEvents で、その間の点もすべて取り出して線に使います（なめらかになります）。
+      const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      (list.length ? list : [e]).forEach(ev => {
+        const p = point(ev); const last = current[current.length - 1];
+        if (Math.abs(p[0] - last[0]) + Math.abs(p[1] - last[1]) >= 0.5) current.push(p);
+      });
+      style();
+      for (; drawn < current.length; drawn++) drawSegment(current, drawn);
     });
-    const end = () => { current = null; };
+    const end = () => {
+      if (current) { style(); if (current.length === 1) drawStroke(current); else drawTail(current); }
+      current = null;
+    };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     // iPad の Safari では、書いている途中に長押しと判定されて文字の選択やメニューが出ることがあるため、
@@ -668,7 +695,7 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
       if (settings.count) deck = deck.slice(0, settings.count);
     }
     if (!deck.length) return;
-    S = { mode, deck, fixedWords: fixedWords || null, idx: 0, score: 0, streak: 0, best: 0, correct: 0, results: [], requeued: new Set(), start: Date.now(), phase: 'answer', timerId: null, given: '', suggest: null };
+    S = { mode, deck, fixedWords: fixedWords || null, idx: 0, score: 0, streak: 0, best: 0, correct: 0, results: [], requeued: new Set(), history: [], start: Date.now(), phase: 'answer', timerId: null, given: '', suggest: null };
     show('play');
     showQuestion();
   }
@@ -710,6 +737,7 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
     $('#reveal').hidden = true;
     $('#gradeBox').hidden = true;
     setFeedback('', '');
+    $('#backBtn').hidden = S.history.length === 0;
     $('#kbdHelp').textContent = S.mode === 'test' && !hand
       ? 'キーボード：Enter で答え合わせ　Esc でわからない'
       : 'キーボード：Enter で答え合わせ　Esc でわからない　1／2 で自己採点';
@@ -853,6 +881,12 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
   }
 
   function record(w, ok, given, how) {
+    // 「前の問題に戻る」で取り消せるように、採点する前の状態を控えておきます
+    S.history.push({
+      idx: S.idx, score: S.score, streak: S.streak, best: S.best, correct: S.correct,
+      deck: S.deck.slice(), requeued: new Set(S.requeued), resultsLen: S.results.length,
+      wordId: w.id, wordRec: store.words[w.id] ? Object.assign({}, store.words[w.id]) : null
+    });
     const r = rec(w);
     if (ok) { r.c++; r.r = false; S.correct++; S.streak++; S.best = Math.max(S.best, S.streak); S.score += 10; }
     else { r.w++; r.r = true; S.streak = 0; }
@@ -861,6 +895,18 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
   }
 
   function next() { if (!S) return; S.idx++; showQuestion(); }
+
+  // 直前の問題の採点を取り消して、その問題をもう一度出します
+  function back() {
+    if (!S || !S.history.length) return;
+    clearTimer(); clearTimeout(S.advanceId);
+    const h = S.history.pop();
+    S.idx = h.idx; S.score = h.score; S.streak = h.streak; S.best = h.best; S.correct = h.correct;
+    S.deck = h.deck; S.requeued = h.requeued; S.results.length = h.resultsLen;
+    if (h.wordRec) store.words[h.wordId] = h.wordRec; else delete store.words[h.wordId];
+    save();
+    showQuestion();
+  }
 
   async function quit() {
     if (S && S.mode === 'test' && S.results.length && S.idx < S.deck.length) {
@@ -883,6 +929,7 @@ kbd{font-family:ui-monospace,Menlo,monospace;font-size:11px;border:1px solid cur
   $('#quitBtn').addEventListener('click', quit);
   $('#submitBtn').addEventListener('click', () => submit(false));
   $('#skipBtn').addEventListener('click', skip);
+  $('#backBtn').addEventListener('click', back);
   $('#gradeOk').addEventListener('click', () => grade(true));
   $('#gradeNg').addEventListener('click', () => grade(false));
 
