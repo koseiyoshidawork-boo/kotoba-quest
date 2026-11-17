@@ -123,6 +123,8 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
 .pad-wrap canvas{display:block;width:100%;height:160px;touch-action:none;cursor:crosshair;color:#1f2a37}
 .pad-guide{position:absolute;left:14px;top:10px;font-size:12px;color:#9a9285;pointer-events:none}
 .pad-tools{display:flex;gap:8px;margin-top:8px}
+.pad-tools .pen-toggle{margin-left:auto}
+.pad-tools .pen-toggle[aria-pressed="true"]{background:var(--ok-l);border-color:var(--ok);color:var(--ok)}
 .back-btn{display:inline-flex;align-items:center;min-height:44px;margin-top:6px;padding:6px 4px;background:none;border:0;color:#5b6573;font-size:14px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .pad-tools .btn{min-height:40px;padding:8px 14px;font-size:13px}
 .actions{display:grid;grid-template-columns:1fr auto;gap:10px;margin-top:14px}
@@ -312,6 +314,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
         <div class="pad-tools">
           <button class="btn ghost" id="undoBtn" type="button">↶ 1画戻す</button>
           <button class="btn ghost" id="clearBtn" type="button">ぜんぶ消す</button>
+          <button class="btn ghost pen-toggle" id="penOnlyBtn" type="button" aria-pressed="false" hidden>✏️ ペンだけ：オフ</button>
         </div>
       </div>
 
@@ -397,7 +400,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     return { words: {} };
   }
   const store = loadStore();
-  const settings = Object.assign({ mode: 'learn', cat: 'all', answer: 'type', count: 20, timer: 0, reviewOnly: false, showTips: true, tipStyle: 'normal' }, store.settings || {});
+  const settings = Object.assign({ mode: 'learn', cat: 'all', answer: 'type', count: 20, timer: 0, reviewOnly: false, showTips: true, tipStyle: 'normal', penOnly: false }, store.settings || {});
   if (!CATS[settings.cat]) settings.cat = 'all';
   store.settings = settings;
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) { /* 何もしません */ } }
@@ -640,11 +643,19 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     c.addEventListener('pointerdown', e => {
       if (!S || S.phase !== 'answer') return;
       e.preventDefault();
+      // Apple Pencil などのペンを一度使ったら、自動で「ペンだけ」をオンにします。
+      // オンのあいだは、指や手のひらが画面に触れても線を書きません。
+      if (e.pointerType === 'pen' && !settings.penOnly) { settings.penOnly = true; save(); updatePenBtn(); }
+      if (e.pointerType === 'pen') $('#penOnlyBtn').hidden = false;
+      if (settings.penOnly && e.pointerType === 'touch') return;
+      if (current) return; // 書いている途中に別の指が触れても、今の線を続けます
       try { c.setPointerCapture(e.pointerId); } catch (err) { /* 古いブラウザ向け */ }
       current = [point(e)]; strokes.push(current); drawn = 1; redraw();
     });
+    let activeId = null; // いま線を書いているペン（指）の番号
+    c.addEventListener('pointerdown', e => { if (current && activeId === null) activeId = e.pointerId; });
     c.addEventListener('pointermove', e => {
-      if (!current) return;
+      if (!current || (activeId !== null && e.pointerId !== activeId)) return;
       // Apple Pencil などは1回の通知の間に細かい点をたくさん記録しています。
       // getCoalescedEvents で、その間の点もすべて取り出して線に使います（なめらかになります）。
       const list = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
@@ -655,9 +666,10 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
       style();
       for (; drawn < current.length; drawn++) drawSegment(current, drawn);
     });
-    const end = () => {
+    const end = e => {
+      if (activeId !== null && e.pointerId !== activeId) return; // 書いていない指が離れただけなら、線は終わりにしません
       if (current) { style(); if (current.length === 1) drawStroke(current); else drawTail(current); }
-      current = null;
+      current = null; activeId = null;
     };
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
@@ -673,6 +685,15 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     if ('ResizeObserver' in window) new ResizeObserver(size).observe(c); else window.addEventListener('resize', size);
     return { size, clear() { strokes = []; redraw(); }, undo() { strokes.pop(); redraw(); }, isEmpty() { return strokes.length === 0; } };
   })();
+  // 「ペンだけ」ボタンの表示を、今の設定に合わせます
+  function updatePenBtn() {
+    const b = $('#penOnlyBtn');
+    b.textContent = '✏️ ペンだけ：' + (settings.penOnly ? 'オン' : 'オフ');
+    b.setAttribute('aria-pressed', String(settings.penOnly));
+    if (settings.penOnly) b.hidden = false;
+  }
+  updatePenBtn();
+  $('#penOnlyBtn').addEventListener('click', () => { settings.penOnly = !settings.penOnly; save(); updatePenBtn(); });
   $('#undoBtn').addEventListener('click', () => pad.undo());
   $('#clearBtn').addEventListener('click', () => pad.clear());
 
