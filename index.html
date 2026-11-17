@@ -662,7 +662,8 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     }
     function point(e) { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
     c.addEventListener('pointerdown', e => {
-      if (!S || S.phase !== 'answer') return;
+      // 答えを書くときに加えて、お手本を見たあと（自己採点の前）も書けるようにします。お手本を見ながら書き写して覚えるためです
+      if (!S || (S.phase !== 'answer' && S.phase !== 'grade')) return;
       e.preventDefault();
       // 「ペンだけ」がオンのあいだは、指や手のひらが画面に触れても線を書きません（オンオフは自分でボタンで切り替えます）
       if (settings.penOnly && e.pointerType === 'touch') return;
@@ -1089,7 +1090,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
       e.preventDefault(); skip();
     } else if (S.phase === 'grade' && (e.key === '1' || e.key === '2')) {
       e.preventDefault(); grade(e.key === '1');
-    } else if (S.phase === 'answer' && settings.answer === 'hand' && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+    } else if ((S.phase === 'answer' || S.phase === 'grade') && settings.answer === 'hand' && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
       e.preventDefault(); pad.undo();
     }
   });
