@@ -145,7 +145,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
 .btn.ok{background:var(--ok-l);color:var(--ok);border:2px solid #b8dfc6}
 .btn.review{background:var(--ng-l);color:var(--ng);border:2px solid #f4c5b8}
 .btn.suggest{box-shadow:0 0 0 3px currentColor inset}
-#peekNextBtn{margin-top:12px}
 .kbd-help{text-align:center;font-size:12px;color:var(--sub);margin:4px 0 0}
 
 /* ===== 結果画面 ===== */
@@ -354,7 +353,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
         <button class="btn review" id="gradeNg" type="button">↻ 復習に回す <kbd>2</kbd></button>
         <button class="btn ok" id="gradeOk" type="button">✓ 正解にする <kbd>1</kbd></button>
       </div>
-      <button class="btn teal block" id="peekNextBtn" type="button" hidden>次の問題へ <kbd>Enter</kbd></button>
     </div>
     <p class="kbd-help" id="kbdHelp">キーボード：Enter で答え合わせ　Esc でわからない　1／2 で自己採点</p>
   </section>
@@ -665,7 +663,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     function point(e) { const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
     c.addEventListener('pointerdown', e => {
       // 答えを書くときに加えて、お手本を見たあと（自己採点の前）も書けるようにします。お手本を見ながら書き写して覚えるためです
-      if (!S || !['answer', 'grade', 'peek'].includes(S.phase)) return;
+      if (!S || (S.phase !== 'answer' && S.phase !== 'grade')) return;
       e.preventDefault();
       // 「ペンだけ」がオンのあいだは、指や手のひらが画面に触れても線を書きません（オンオフは自分でボタンで切り替えます）
       if (settings.penOnly && e.pointerType === 'touch') return;
@@ -777,7 +775,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     $('#answerActions').hidden = false;
     $('#reveal').hidden = true;
     $('#gradeBox').hidden = true;
-    $('#peekNextBtn').hidden = true;
     setFeedback('', '');
     $('#backBtn').hidden = S.history.length === 0;
     $('#kbdHelp').textContent = S.mode === 'test' && !hand
@@ -827,7 +824,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     const box = $('#revealTips');
     const base = TIPS[w.en];
     box.innerHTML = '';
-    if ((S.mode !== 'learn' && S.phase !== 'peek') || !settings.showTips || !base) { box.hidden = true; return; }
+    if (S.mode !== 'learn' || !settings.showTips || !base) { box.hidden = true; return; }
     // 下ネタモードで下ネタ版があるときは、💡 覚え方を差し替えます
     const gesu = settings.tipStyle === 'gesu' ? TIPS_GESU[w.en] : null;
     const tip = gesu ? Object.assign({}, base, { m: gesu }) : base;
@@ -901,19 +898,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     if (!S || S.phase !== 'answer') return;
     const w = cur();
     clearTimer();
-    if (S.mode === 'test') {
-      // 実践テストでも「わからない」のときだけは、正解と解説を見せてから次へ進みます（記録は不正解のままです）
-      record(w, false, '', 'skip');
-      S.phase = 'peek';
-      $('#answerInput').disabled = true;
-      showReveal(w, '');
-      setFeedback('正解と解説を確認してから、次へ進みましょう。', 'info');
-      const nb = $('#peekNextBtn');
-      nb.hidden = false;
-      nb.focus({ preventScroll: true });
-      nb.scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-      return;
-    }
+    if (S.mode === 'test') { S.phase = 'locked'; record(w, false, '', 'skip'); next(); return; }
     S.phase = 'grade'; S.given = '';
     $('#answerInput').disabled = true;
     showReveal(w, '');
@@ -983,7 +968,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
   $('#quitBtn').addEventListener('click', quit);
   $('#submitBtn').addEventListener('click', () => submit(false));
   $('#skipBtn').addEventListener('click', skip);
-  $('#peekNextBtn').addEventListener('click', () => { if (S && S.phase === 'peek') next(); });
   $('#backBtn').addEventListener('click', back);
   $('#gradeOk').addEventListener('click', () => grade(true));
   $('#gradeNg').addEventListener('click', () => grade(false));
@@ -1098,7 +1082,6 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     if (e.isComposing || e.keyCode === 229) return; // 日本語入力の変換中は反応しません
     if (e.key === 'Enter') {
       if (S.phase === 'answer') { e.preventDefault(); submit(false); }
-      else if (S.phase === 'peek') { e.preventDefault(); next(); }
       else if (S.phase === 'grade') {
         if (S.suggest !== null) { e.preventDefault(); grade(S.suggest); }
         // 手書きのときはおすすめがないので、選んでいるボタンをそのまま押します
