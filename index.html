@@ -624,6 +624,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     const c = $('#pad');
     const ctx = c.getContext('2d');
     let strokes = [];
+    let undoStack = []; // 「1画戻す」用に、変える前の線の一覧を控えておきます
     let current = null;
     let drawn = 0; // いま書いている線のうち、画面に描き終えた点の数
     function style() { ctx.lineWidth = 3.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = ctx.fillStyle = '#1f2a37'; }
@@ -669,6 +670,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
       if (settings.penOnly && e.pointerType === 'touch') return;
       if (current) return; // 書いている途中に別の指が触れても、今の線を続けます
       try { c.setPointerCapture(e.pointerId); } catch (err) { /* 古いブラウザ向け */ }
+      undoStack.push(strokes.slice());
       current = [point(e)]; strokes.push(current); drawn = 1; redraw();
     });
     let activeId = null; // いま線を書いているペン（指）の番号
@@ -687,9 +689,47 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     });
     const end = e => {
       if (activeId !== null && e.pointerId !== activeId) return; // 書いていない指が離れただけなら、線は終わりにしません
-      if (current) { style(); if (current.length === 1) drawStroke(current); else drawTail(current); }
+      if (current) {
+        style(); if (current.length === 1) drawStroke(current); else drawTail(current);
+        // ぐるぐるなぞった線なら、その下の文字といっしょに消します
+        const hit = scribbleTargets(current);
+        if (hit) { const sc = current; strokes = strokes.filter(t => t !== sc && !hit.has(t)); current = null; redraw(); }
+      }
       current = null; activeId = null;
     };
+    // ===== ぐるぐるで消す =====
+    // 線が「せまい範囲で何回も回っている」かどうかを、曲がった角度の合計と線の長さで見分けます。
+    // ぐるぐるだったら、その範囲に入っている前の線を返します（何もなければ null を返し、普通の線として残します）。
+    function scribbleTargets(sc) {
+      if (sc.length < 12) return null;
+      // 点が細かすぎると手ぶれで角度がふえるので、4px ごとに間引いてから調べます
+      const pts = [sc[0]];
+      sc.forEach(p => { const q = pts[pts.length - 1]; if (Math.hypot(p[0] - q[0], p[1] - q[1]) >= 4) pts.push(p); });
+      if (pts.length < 8) return null;
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity, len = 0, turn = 0;
+      pts.forEach((p, i) => {
+        minX = Math.min(minX, p[0]); maxX = Math.max(maxX, p[0]); minY = Math.min(minY, p[1]); maxY = Math.max(maxY, p[1]);
+        if (i > 0) len += Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]);
+        if (i > 1) {
+          const a = Math.atan2(pts[i - 1][1] - pts[i - 2][1], pts[i - 1][0] - pts[i - 2][0]);
+          const b = Math.atan2(p[1] - pts[i - 1][1], p[0] - pts[i - 1][0]);
+          let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+          turn += Math.abs(d);
+        }
+      });
+      const diag = Math.hypot(maxX - minX, maxY - minY);
+      // 1回半以上まわっていて（角度の合計が 2.8π 以上）、線の長さが範囲の対角線の 2.8 倍以上なら、ぐるぐるとみなします
+      if (diag < 16 || turn < 2.8 * Math.PI || len < 2.8 * diag) return null;
+      const pad = 6;
+      const inside = p => p[0] >= minX - pad && p[0] <= maxX + pad && p[1] >= minY - pad && p[1] <= maxY + pad;
+      const hit = new Set();
+      strokes.forEach(t => {
+        if (t === sc) return;
+        const n = t.filter(inside).length;
+        if (n / t.length >= 0.5) hit.add(t); // 線の半分以上がぐるぐるの範囲に入っていたら消します
+      });
+      return hit.size ? hit : null;
+    }
     c.addEventListener('pointerup', end);
     c.addEventListener('pointercancel', end);
     // iPad の Safari では、書いている途中に長押しと判定されて文字の選択やメニューが出ることがあるため、
@@ -702,7 +742,13 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
     document.addEventListener('selectstart', e => { if (current) e.preventDefault(); });
     c.addEventListener('pointerdown', () => { const sel = window.getSelection && window.getSelection(); if (sel && sel.rangeCount) sel.removeAllRanges(); });
     if ('ResizeObserver' in window) new ResizeObserver(size).observe(c); else window.addEventListener('resize', size);
-    return { size, clear() { strokes = []; redraw(); }, undo() { strokes.pop(); redraw(); }, isEmpty() { return strokes.length === 0; } };
+    return {
+      size,
+      clear() { if (strokes.length) undoStack.push(strokes.slice()); strokes = []; redraw(); },
+      reset() { strokes = []; undoStack = []; redraw(); }, // 新しい問題になったら、戻す履歴も空にします
+      undo() { strokes = undoStack.length ? undoStack.pop() : []; redraw(); },
+      isEmpty() { return strokes.length === 0; }
+    };
   })();
   // 「ペンだけ」ボタンの表示を、今の設定に合わせます
   function updatePenBtn() {
@@ -783,7 +829,7 @@ input,textarea{-webkit-user-select:text;user-select:text;-webkit-touch-callout:d
 
     // 前の問題で下まで動いていたら、問題文が見える位置まで戻します
     if ($('#qText').getBoundingClientRect().top < 0) window.scrollTo(0, 0);
-    if (hand) { pad.size(); pad.clear(); } else { input.focus({ preventScroll: true }); }
+    if (hand) { pad.size(); pad.reset(); } else { input.focus({ preventScroll: true }); }
     if (S.mode === 'test' && settings.timer) startTimer(settings.timer); else $('#timer').hidden = true;
   }
 
